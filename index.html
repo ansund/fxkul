@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Invaders Cellular Automaton</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const CELL_SIZE = 5;
+      const ROWS = Math.floor(window.innerHeight / CELL_SIZE);
+      const COLS = Math.floor(window.innerWidth / CELL_SIZE);
+
+      canvas.width = COLS * CELL_SIZE;
+      canvas.height = ROWS * CELL_SIZE;
+
+      let grid = createGrid();
+      let nextGrid = createGrid();
+
+      // Player ship
+      const player = {
+        x: Math.floor(COLS / 2),
+        y: ROWS - 5,
+        width: 5,
+        height: 5,
+      };
+
+      // Bullets
+      let bullets = [];
+      let shootingInterval;
+
+      // Score counter
+      let score = 0;
+      let highScore = 0; // New high score variable
+
+      // Timer
+      let startTime = Date.now();
+
+      // Game state
+      let isGameRunning = false;
+      let isGameOver = false;
+
+      // Web Audio API setup
+      let audioCtx;
+
+      function initAudio() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      // Call this function when the page loads
+      initAudio();
+
+      function playSound(frequency, type, duration) {
+        if (audioCtx.state !== "running") {
+          audioCtx.resume();
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.00001,
+          audioCtx.currentTime + duration
+        );
+        oscillator.stop(audioCtx.currentTime + duration);
+      }
+
+      function playShootSound() {
+        playSound(440, "square", 0.1); // A simple square wave sound for shooting
+      }
+
+      function playHitSound() {
+        playSound(220, "sawtooth", 0.2); // A simple sawtooth wave sound for hitting
+      }
+
+      function createGrid() {
+        return new Array(ROWS).fill(null).map(() => new Array(COLS).fill(0));
+      }
+
+      function countNeighbors(row, col) {
+        let count = 0;
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            if (i === 0 && j === 0) continue;
+            const newRow = (row + i + ROWS) % ROWS;
+            const newCol = (col + j + COLS) % COLS;
+            count += grid[newRow][newCol];
+          }
+        }
+        return count;
+      }
+
+      function updateGrid() {
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            const neighbors = countNeighbors(i, j);
+            if (grid[i][j] === 1) {
+              nextGrid[i][j] = neighbors === 2 || neighbors === 3 ? 1 : 0;
+            } else {
+              nextGrid[i][j] = neighbors === 3 ? 1 : 0;
+            }
+          }
+        }
+        [grid, nextGrid] = [nextGrid, grid];
+      }
+
+      function applyGravity() {
+        let newGrid = createGrid();
+        for (let i = ROWS - 1; i >= 0; i--) {
+          for (let j = 0; j < COLS; j++) {
+            if (grid[i][j] === 1) {
+              if (i < ROWS - 1) {
+                newGrid[i + 1][j] = 1;
+              }
+            }
+          }
+        }
+        grid = newGrid;
+      }
+
+      function spawnAsteroids() {
+        for (let j = 0; j < COLS; j++) {
+          if (Math.random() > 0.9 - (Date.now() - startTime) / 1000000) {
+            // Adjust the probability as needed
+            grid[0][j] = 1;
+          }
+        }
+      }
+
+      function drawGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            if (grid[i][j] === 1) {
+              const hue = (i * j) % 360;
+              ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+              ctx.fillRect(j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            }
+          }
+        }
+      }
+
+      function drawPlayer() {
+        const x = player.x;
+        const y = player.y;
+
+        // Ship body (gray)
+        ctx.fillStyle = "#808080";
+        ctx.fillRect(
+          (x + 1) * CELL_SIZE,
+          y * CELL_SIZE,
+          3 * CELL_SIZE,
+          4 * CELL_SIZE
+        );
+        ctx.fillRect(
+          x * CELL_SIZE,
+          (y + 2) * CELL_SIZE,
+          5 * CELL_SIZE,
+          2 * CELL_SIZE
+        );
+
+        // Ship tip (red)
+        ctx.fillStyle = "#FF0000";
+        ctx.fillRect(
+          (x + 2) * CELL_SIZE,
+          (y - 1) * CELL_SIZE,
+          CELL_SIZE,
+          CELL_SIZE
+        );
+
+        // Windows (cyan)
+        ctx.fillStyle = "#00FFFF";
+        ctx.fillRect(
+          (x + 1) * CELL_SIZE,
+          (y + 1) * CELL_SIZE,
+          CELL_SIZE,
+          CELL_SIZE
+        );
+        ctx.fillRect(
+          (x + 3) * CELL_SIZE,
+          (y + 1) * CELL_SIZE,
+          CELL_SIZE,
+          CELL_SIZE
+        );
+
+        // Engines (orange)
+        ctx.fillStyle = "#FFA500";
+        ctx.fillRect(x * CELL_SIZE, (y + 4) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        ctx.fillRect(
+          (x + 4) * CELL_SIZE,
+          (y + 4) * CELL_SIZE,
+          CELL_SIZE,
+          CELL_SIZE
+        );
+      }
+
+      function drawBullets() {
+        ctx.fillStyle = "#ffffff";
+        bullets.forEach((bullet) => {
+          ctx.fillRect(
+            bullet.x * CELL_SIZE,
+            bullet.y * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
+          );
+        });
+      }
+
+      function updateBullets() {
+        bullets = bullets.filter((bullet) => {
+          bullet.y--;
+          if (bullet.y < 0) return false;
+          if (grid[bullet.y][bullet.x] === 1) {
+            grid[bullet.y][bullet.x] = 0;
+            // Remove neighboring cells
+            for (let i = -1; i <= 1; i++) {
+              for (let j = -1; j <= 1; j++) {
+                const newY = (bullet.y + i + ROWS) % ROWS;
+                const newX = (bullet.x + j + COLS) % COLS;
+                grid[newY][newX] = 0;
+              }
+            }
+            score++; // Increment score when an asteroid is shot
+            playHitSound(); // Play hit sound
+
+            // 50% chance to spawn a gold nugget
+            if (Math.random() < 0.5) {
+              goldNuggets.push(createGoldNugget(bullet.x, bullet.y));
+            }
+
+            return false;
+          }
+          return true;
+        });
+      }
+
+      function shoot() {
+        bullets.push({ x: player.x + 2, y: player.y - 1 });
+        playShootSound(); // Play shoot sound
+      }
+
+      function drawScore() {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "20px Arial";
+        ctx.fillText(`Score: ${score}`, canvas.width - 100, 30);
+      }
+
+      // function drawTimer() {
+      //   const elapsedTime = Date.now() - startTime;
+      //   const minutes = Math.floor(elapsedTime / 60000);
+      //   const seconds = Math.floor((elapsedTime % 60000) / 1000);
+      //   const milliseconds = elapsedTime % 1000;
+      //   ctx.fillStyle = "#ffffff";
+      //   ctx.font = "20px Arial";
+      //   ctx.fillText(`Time: ${minutes}:${seconds}:${milliseconds}`, 10, 30);
+      // }
+
+      function drawMenu() {
+        const menuWidth = 60;
+        const menuHeight = 40;
+        const menuX = Math.floor((COLS - menuWidth) / 2);
+        const menuY = Math.floor((ROWS - menuHeight) / 2);
+
+        // // Draw menu background
+        // for (let i = 0; i < menuHeight; i++) {
+        //   for (let j = 0; j < menuWidth; j++) {
+        //     const hue = ((menuY + i) * (menuX + j)) % 360;
+        //     ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+        //     ctx.fillRect(
+        //       (menuX + j) * CELL_SIZE,
+        //       (menuY + i) * CELL_SIZE,
+        //       CELL_SIZE,
+        //       CELL_SIZE
+        //     );
+        //   }
+        // }
+
+        // Calculate center positions
+        const centerX = menuX + menuWidth / 2;
+
+        // Draw "GAME OF DEATH" text
+        const titleText = "GAME OF DEATH";
+        const titleX = centerX - titleText.length * 6;
+        drawText(titleText, titleX, menuY - 20, 2);
+
+        // Draw high score
+        const highScoreText = `HIGH SCORE: ${highScore}`;
+        const highScoreX = centerX - (highScoreText.length * 6) / 2;
+        drawText(highScoreText, highScoreX, menuY + 5, 1);
+
+        // Draw score if game over
+        if (isGameOver) {
+          const scoreText = `SCORE: ${score}`;
+          const scoreX = centerX - (scoreText.length * 6) / 2;
+          drawText(scoreText, scoreX, menuY + 15, 1);
+        }
+
+        // Draw New Game button
+        const buttonText = "NEW GAME";
+        const buttonX = centerX - (buttonText.length * 6) / 2;
+        const buttonY = menuY + menuHeight - 10;
+        drawText(buttonText, buttonX, buttonY, 1);
+      }
+
+      function drawText(text, x, y, size) {
+        const charWidth = 5;
+        const charHeight = 5;
+        const spacing = 1;
+
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i].toUpperCase();
+          const charX = x + i * (charWidth + spacing) * size;
+
+          for (let cy = 0; cy < charHeight; cy++) {
+            for (let cx = 0; cx < charWidth; cx++) {
+              if (fontData[char] && fontData[char][cy * charWidth + cx]) {
+                ctx.fillStyle = "#FFFFFF";
+                ctx.fillRect(
+                  (charX + cx * size) * CELL_SIZE,
+                  (y + cy * size) * CELL_SIZE,
+                  size * CELL_SIZE,
+                  size * CELL_SIZE
+                );
+              }
+            }
+          }
+        }
+      }
+
+      const fontData = {
+        A: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0,
+          0, 1,
+        ],
+        B: [
+          1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1,
+          1, 0,
+        ],
+        C: [
+          0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1,
+          1, 1,
+        ],
+        D: [
+          1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1,
+          1, 0,
+        ],
+        E: [
+          1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1,
+          1, 1,
+        ],
+        F: [
+          1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0,
+          0, 0,
+        ],
+        G: [
+          0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 1,
+        ],
+        H: [
+          1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0,
+          0, 1,
+        ],
+        I: [
+          1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1,
+          1, 1,
+        ],
+        J: [
+          0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        K: [
+          1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0,
+          0, 1,
+        ],
+        L: [
+          1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1,
+          1, 1,
+        ],
+        M: [
+          1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0,
+          0, 1,
+        ],
+        N: [
+          1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0,
+          0, 1,
+        ],
+        O: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        P: [
+          1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0,
+          0, 0,
+        ],
+        Q: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 1,
+          0, 1,
+        ],
+        R: [
+          1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0,
+          0, 1,
+        ],
+        S: [
+          0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+          1, 0,
+        ],
+        T: [
+          1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+          0, 0,
+        ],
+        U: [
+          1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        V: [
+          1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1,
+          0, 0,
+        ],
+        W: [
+          1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0,
+          0, 1,
+        ],
+        X: [
+          1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0,
+          0, 1,
+        ],
+        Y: [
+          1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+          0, 0,
+        ],
+        Z: [
+          1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1,
+          1, 1,
+        ],
+        0: [
+          0, 1, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        1: [
+          0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1,
+          1, 0,
+        ],
+        2: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1,
+          1, 1,
+        ],
+        3: [
+          1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+          1, 0,
+        ],
+        4: [
+          0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0,
+          1, 0,
+        ],
+        5: [
+          1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+          1, 0,
+        ],
+        6: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        7: [
+          1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0,
+          0, 0,
+        ],
+        8: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        9: [
+          0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1,
+          1, 0,
+        ],
+        " ": [
+          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          0, 0,
+        ],
+        ":": [
+          0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+          0, 0,
+        ],
+      };
+
+      function handleClick(event) {
+        if (!isGameRunning) {
+          const rect = canvas.getBoundingClientRect();
+          const x = Math.floor((event.clientX - rect.left) / CELL_SIZE);
+          const y = Math.floor((event.clientY - rect.top) / CELL_SIZE);
+
+          const menuWidth = 60;
+          const menuHeight = 40;
+          const menuX = Math.floor((COLS - menuWidth) / 2);
+          const menuY = Math.floor((ROWS - menuHeight) / 2);
+
+          const buttonText = "NEW GAME";
+          const buttonWidth = buttonText.length * 6;
+          const buttonX = menuX + menuWidth / 2 - buttonWidth / 2;
+          const buttonY = menuY + menuHeight - 10;
+
+          if (
+            x >= buttonX &&
+            x < buttonX + buttonWidth &&
+            y >= buttonY &&
+            y < buttonY + 5
+          ) {
+            startNewGame();
+          }
+        }
+      }
+
+      function startNewGame() {
+        grid = createGrid();
+        nextGrid = createGrid();
+        score = 0;
+        startTime = Date.now();
+        bullets = [];
+        goldNuggets = [];
+        isGameRunning = true;
+        isGameOver = false;
+        player.x = Math.floor(COLS / 2);
+        player.y = ROWS - 5;
+
+        if (audioCtx.state === "closed") {
+          initAudio();
+        } else {
+          audioCtx.resume();
+        }
+
+        animate();
+      }
+
+      function checkCollision() {
+        for (let i = player.y - 1; i < player.y + player.height; i++) {
+          for (let j = player.x; j < player.x + player.width; j++) {
+            if (grid[i] && grid[i][j] === 1) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function gameOver() {
+        isGameRunning = false;
+        isGameOver = true;
+        if (score > highScore) {
+          highScore = score;
+        }
+
+        // Stop all ongoing sounds
+        audioCtx.close().then(() => {
+          initAudio();
+          // Play game over sound
+          playGameOverSound();
+        });
+
+        // Clear shooting interval if it's still active
+        clearInterval(shootingInterval);
+      }
+
+      function playGameOverSound() {
+        if (audioCtx.state !== "running") {
+          return;
+        }
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = "sawtooth";
+        oscillator.frequency.setValueAtTime(220, audioCtx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          55,
+          audioCtx.currentTime + 1.5
+        );
+
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.01,
+          audioCtx.currentTime + 1.5
+        );
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 1.5);
+      }
+
+      canvas.addEventListener("click", handleClick);
+
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        player.x =
+          Math.floor((e.clientX - rect.left) / CELL_SIZE) -
+          Math.floor(player.width / 2);
+        player.x = Math.max(0, Math.min(player.x, COLS - player.width));
+      });
+
+      canvas.addEventListener("mousedown", (e) => {
+        if (isGameRunning) {
+          shootingInterval = setInterval(shoot, 100); // Shoot every 100ms
+        }
+      });
+
+      canvas.addEventListener("mouseup", () => {
+        if (isGameRunning) {
+          clearInterval(shootingInterval);
+        }
+      });
+
+      canvas.addEventListener("mouseleave", () => {
+        if (isGameRunning) {
+          clearInterval(shootingInterval);
+        }
+      });
+
+      const FPS = 100; // Adjust this value to control game speed
+      let then = Date.now();
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const now = Date.now();
+        const elapsed = now - then;
+
+        if (elapsed > 1000 / FPS) {
+          then = now - (elapsed % (1000 / FPS));
+
+          if (!isGameRunning) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+            drawMenu();
+            drawScore();
+            // drawTimer();
+          } else {
+            spawnAsteroids();
+            updateGrid();
+            applyGravity();
+            updateBullets();
+            updateGoldNuggets();
+            drawGrid();
+            drawPlayer();
+            drawBullets();
+            drawGoldNuggets();
+            drawScore();
+            // drawTimer();
+
+            if (checkCollision()) {
+              gameOver();
+            }
+          }
+        }
+      }
+
+      let goldNuggets = [];
+
+      function createGoldNugget(x, y) {
+        return {
+          x: x,
+          y: y,
+          wiggleOffset: 0,
+          wiggleDirection: Math.random() < 0.5 ? -1 : 1,
+        };
+      }
+
+      function updateGoldNuggets() {
+        goldNuggets = goldNuggets.filter((nugget) => {
+          // Update y position every 3rd frame to make it fall at 1/3rd speed
+          if (Date.now() % 3 === 0) {
+            nugget.y++;
+          }
+
+          // Wiggle left and right
+          nugget.wiggleOffset += 0.1 * nugget.wiggleDirection;
+          if (Math.abs(nugget.wiggleOffset) > 0.5) {
+            nugget.wiggleDirection *= -1;
+          }
+
+          if (nugget.y >= ROWS) return false;
+
+          // Check if the player collects the nugget
+          if (
+            nugget.x + nugget.wiggleOffset >= player.x - 1 &&
+            nugget.x + nugget.wiggleOffset < player.x + player.width + 1 &&
+            nugget.y >= player.y - 1 &&
+            nugget.y < player.y + player.height + 1
+          ) {
+            score += 10; // Add 10 points for collecting a gold nugget
+            playSound(660, "sine", 0.1); // Play a collection sound
+            return false;
+          }
+
+          return true;
+        });
+      }
+
+      function drawGoldNuggets() {
+        ctx.fillStyle = "#FFD700"; // Gold color
+        goldNuggets.forEach((nugget) => {
+          const drawX = (nugget.x + nugget.wiggleOffset) * CELL_SIZE;
+
+          // Draw a 3x3 diamond shape
+          ctx.fillRect(drawX, (nugget.y - 1) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+          ctx.fillRect(
+            drawX - CELL_SIZE,
+            nugget.y * CELL_SIZE,
+            3 * CELL_SIZE,
+            CELL_SIZE
+          );
+          ctx.fillRect(drawX, (nugget.y + 1) * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+
+          // Add a shine effect
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillRect(
+            drawX - CELL_SIZE,
+            nugget.y * CELL_SIZE,
+            CELL_SIZE,
+            CELL_SIZE
+          );
+          ctx.fillStyle = "#FFD700"; // Reset to gold color
+        });
+      }
+
+      // Start with the menu instead of initializing the grid
+      isGameRunning = false;
+      animate();
+    </script>
+  </body>
+</html>

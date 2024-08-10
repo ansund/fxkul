@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Colorful Cellular Automaton with Gravity</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #000;
+      }
+      canvas {
+        display: block;
+        touch-action: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const CELL_SIZE = 5; // Smaller cell size for a bigger grid
+      const ROWS = Math.floor(window.innerHeight / CELL_SIZE);
+      const COLS = Math.floor(window.innerWidth / CELL_SIZE);
+
+      canvas.width = COLS * CELL_SIZE;
+      canvas.height = ROWS * CELL_SIZE;
+
+      let grid = createGrid();
+      let nextGrid = createGrid();
+
+      function createGrid() {
+        return new Array(ROWS).fill(null).map(() => new Array(COLS).fill(0));
+      }
+
+      function initializeGrid() {
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            grid[i][j] = Math.random() > 0.9 ? 1 : 0; // Less initial cells
+          }
+        }
+      }
+
+      function countNeighbors(row, col) {
+        let count = 0;
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            if (i === 0 && j === 0) continue;
+            const newRow = (row + i + ROWS) % ROWS;
+            const newCol = (col + j + COLS) % COLS;
+            count += grid[newRow][newCol];
+          }
+        }
+        return count;
+      }
+
+      function updateGrid() {
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            const neighbors = countNeighbors(i, j);
+            if (grid[i][j] === 1) {
+              nextGrid[i][j] = neighbors === 2 || neighbors === 3 ? 1 : 0;
+            } else {
+              nextGrid[i][j] = neighbors === 3 ? 1 : 0;
+            }
+          }
+        }
+        [grid, nextGrid] = [nextGrid, grid];
+      }
+
+      function applyGravity() {
+        for (let i = ROWS - 2; i >= 0; i--) {
+          for (let j = 0; j < COLS; j++) {
+            if (grid[i][j] === 1 && grid[i + 1][j] === 0) {
+              grid[i + 1][j] = 1;
+              grid[i][j] = 0;
+            }
+          }
+        }
+      }
+
+      function drawGrid() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < ROWS; i++) {
+          for (let j = 0; j < COLS; j++) {
+            if (grid[i][j] === 1) {
+              const hue = (i * j) % 360;
+              ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
+              ctx.fillRect(j * CELL_SIZE, i * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            }
+          }
+        }
+      }
+
+      function addRandomCells() {
+        for (let i = 0; i < 5; i++) {
+          const x = Math.floor(Math.random() * COLS);
+          const y = Math.floor(Math.random() * ROWS);
+          grid[y][x] = 1;
+        }
+      }
+
+      let isInteracting = false;
+
+      function handleStart(event) {
+        isInteracting = true;
+        handleInteraction(event);
+      }
+
+      function handleEnd() {
+        isInteracting = false;
+      }
+
+      function handleMove(event) {
+        if (isInteracting) {
+          handleInteraction(event);
+        }
+      }
+
+      function handleInteraction(event) {
+        const rect = canvas.getBoundingClientRect();
+        let x, y;
+
+        if (event.touches) {
+          x = Math.floor((event.touches[0].clientX - rect.left) / CELL_SIZE);
+          y = Math.floor((event.touches[0].clientY - rect.top) / CELL_SIZE);
+        } else {
+          x = Math.floor((event.clientX - rect.left) / CELL_SIZE);
+          y = Math.floor((event.clientY - rect.top) / CELL_SIZE);
+        }
+
+        for (let i = -1; i <= 1; i++) {
+          for (let j = -1; j <= 1; j++) {
+            const newY = (y + i + ROWS) % ROWS;
+            const newX = (x + j + COLS) % COLS;
+            grid[newY][newX] = 1;
+          }
+        }
+      }
+
+      // Mouse events
+      canvas.addEventListener("mousedown", handleStart);
+      canvas.addEventListener("mouseup", handleEnd);
+      canvas.addEventListener("mousemove", handleMove);
+      canvas.addEventListener("mouseleave", handleEnd);
+
+      // Touch events
+      canvas.addEventListener("touchstart", handleStart);
+      canvas.addEventListener("touchend", handleEnd);
+      canvas.addEventListener("touchmove", handleMove);
+
+      function animate() {
+        updateGrid();
+        // applyGravity();
+        // addRandomCells();
+        drawGrid();
+        requestAnimationFrame(animate);
+      }
+
+      initializeGrid();
+      animate();
+
+      // Resize handler
+      window.addEventListener("resize", () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        ROWS = Math.floor(window.innerHeight / CELL_SIZE);
+        COLS = Math.floor(window.innerWidth / CELL_SIZE);
+        grid = createGrid();
+        nextGrid = createGrid();
+        initializeGrid();
+      });
+    </script>
+  </body>
+</html>
