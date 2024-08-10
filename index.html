@@ -280,27 +280,13 @@
         const menuX = Math.floor((COLS - menuWidth) / 2);
         const menuY = Math.floor((ROWS - menuHeight) / 2);
 
-        // // Draw menu background
-        // for (let i = 0; i < menuHeight; i++) {
-        //   for (let j = 0; j < menuWidth; j++) {
-        //     const hue = ((menuY + i) * (menuX + j)) % 360;
-        //     ctx.fillStyle = `hsl(${hue}, 100%, 50%)`;
-        //     ctx.fillRect(
-        //       (menuX + j) * CELL_SIZE,
-        //       (menuY + i) * CELL_SIZE,
-        //       CELL_SIZE,
-        //       CELL_SIZE
-        //     );
-        //   }
-        // }
-
         // Calculate center positions
         const centerX = menuX + menuWidth / 2;
 
-        // Draw "GAME OF DEATH" text
+        // Draw "GAME OF DEATH" text with size 1
         const titleText = "GAME OF DEATH";
-        const titleX = centerX - titleText.length * 6;
-        drawText(titleText, titleX, menuY - 20, 2);
+        const titleX = centerX - (titleText.length * 6) / 2;
+        drawText(titleText, titleX, menuY - 10, 1);
 
         // Draw high score
         const highScoreText = `HIGH SCORE: ${highScore}`;
@@ -632,6 +618,48 @@
           clearInterval(shootingInterval);
         }
       });
+
+      // Add touch event listeners
+      canvas.addEventListener("touchstart", handleTouchStart);
+      canvas.addEventListener("touchmove", handleTouchMove);
+      canvas.addEventListener("touchend", handleTouchEnd);
+
+      let touchStartX, touchStartY;
+      let isShooting = false;
+
+      function handleTouchStart(e) {
+        e.preventDefault();
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+
+        if (isGameRunning) {
+          isShooting = true;
+          shootingInterval = setInterval(shoot, 100);
+        } else {
+          handleClick(touch);
+        }
+      }
+
+      function handleTouchMove(e) {
+        e.preventDefault();
+        if (isGameRunning) {
+          const touch = e.touches[0];
+          const rect = canvas.getBoundingClientRect();
+          player.x =
+            Math.floor((touch.clientX - rect.left) / CELL_SIZE) -
+            Math.floor(player.width / 2);
+          player.x = Math.max(0, Math.min(player.x, COLS - player.width));
+        }
+      }
+
+      function handleTouchEnd(e) {
+        e.preventDefault();
+        if (isGameRunning && isShooting) {
+          clearInterval(shootingInterval);
+          isShooting = false;
+        }
+      }
 
       const FPS = 100; // Adjust this value to control game speed
       let then = Date.now();
